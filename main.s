@@ -9,13 +9,10 @@ global _start
 %define BF_JMP_FWD_IF_ZERO 6 ; '[', inst will be followed by jmp addr
 %define BF_JMP_BACK_IF_NOT_ZERO 7 ; ']', inst will be followed by jmp addr
 
-section .rodata
-
-; TODO: read this
-PROGRAM: db "++++++++[>++++[>++>+++>+++>+<<<<-]>+>+>->>+[<]<-]>>.>---.+++++++..+++.>>.<-.<.+++.------.--------.>>+.>++."
-PROGRAM_END equ $
-
 section .bss
+
+PROGRAM: resb 1024
+PROGRAM_LEN equ $-PROGRAM
 
 INSTRUCTIONS: resq 1024
 INSTRUCTIONS_END equ $
@@ -31,6 +28,31 @@ DATA_END equ $
 section .text
 
 _start:
+	; int argc = rsp
+	mov rax, [rsp]
+	cmp rax, 2
+	jl exit_error
+
+	; open(argv[1], 0, 0)
+	mov rax, 2
+	; char *argv[1] = rsp + 16 = argv[1]
+	mov rdi, [rsp+16]
+	mov rsi, 0 ; O_RDONLY
+	mov rdx, 0
+	syscall 
+	cmp rax, 0
+	jl exit_error
+	; read(fd, PROGRAM, PROGRAM_LEN)
+	mov rdi, rax
+	mov rax, 0
+	mov rsi, PROGRAM
+	mov rdx, PROGRAM_LEN
+	syscall
+	lea r8, [rax+PROGRAM]
+	; close(fd)
+	mov rax, 3
+	syscall
+
 	; parse bf source
 	mov rdi, INSTRUCTIONS
 	mov rsi, PROGRAM
@@ -43,7 +65,7 @@ _start:
 	cmp rdx, JMP_STACK_END
 	jge exit_error
 	inc rsi
-	cmp rsi, PROGRAM_END
+	cmp rsi, r8
 	jl .read_input_char
 	cmp rdx, JMP_STACK
 	; open bracket with no close bracket
@@ -51,7 +73,7 @@ _start:
 
 	; interpret instructions
 	; ptr to last inst
-	mov r8, rdi
+	mov rbx, rdi
 	mov rdi, INSTRUCTIONS
 	mov rax, DATA
 .interpret_inst:
@@ -60,7 +82,7 @@ _start:
 	jge exit_error
 	cmp rax, DATA
 	jl exit_error
-	cmp rdi, r8
+	cmp rdi, rbx
 	jle .interpret_inst
 
 	mov rax, 60
