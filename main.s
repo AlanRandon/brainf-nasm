@@ -11,10 +11,10 @@ global _start
 
 section .bss
 
-PROGRAM: resb 1024
+PROGRAM: resb 4096
 PROGRAM_LEN equ $-PROGRAM
 
-INSTRUCTIONS: resq 1024
+INSTRUCTIONS: resq 4096
 INSTRUCTIONS_END equ $
 
 JMP_STACK: resq 1024
@@ -31,20 +31,20 @@ _start:
 	; int argc = rsp
 	mov rax, [rsp]
 	cmp rax, 2
-	jl exit_error
+	jl exit_invalid_args_error
 
 	; open(argv[1], 0, 0)
 	mov rax, 2
 	; char *argv[1] = rsp + 16 = argv[1]
 	mov rdi, [rsp+16]
-	mov rsi, 0 ; O_RDONLY
-	mov rdx, 0
+	xor rsi, rsi ; O_RDONLY
+	xor rdx, rdx
 	syscall 
 	cmp rax, 0
-	jl exit_error
+	jl exit_invalid_args_error
 	; read(fd, PROGRAM, PROGRAM_LEN)
 	mov rdi, rax
-	mov rax, 0
+	xor rax, rax
 	mov rsi, PROGRAM
 	mov rdx, PROGRAM_LEN
 	syscall
@@ -61,15 +61,15 @@ _start:
 	mov al, [rsi]
 	call char_to_inst
 	cmp rdi, INSTRUCTIONS_END-8
-	jge exit_error
+	jge exit_out_of_memory
 	cmp rdx, JMP_STACK_END
-	jge exit_error
+	jge exit_out_of_memory
 	inc rsi
 	cmp rsi, r8
 	jl .read_input_char
 	cmp rdx, JMP_STACK
 	; open bracket with no close bracket
-	jne exit_error
+	jne exit_mismatched_brackets_error
 
 	; interpret instructions
 	; ptr to last inst
@@ -79,19 +79,14 @@ _start:
 .interpret_inst:
 	call interpret_inst
 	cmp rax, DATA_END
-	jge exit_error
+	jge exit_out_of_memory
 	cmp rax, DATA
-	jl exit_error
+	jl exit_out_of_memory
 	cmp rdi, rbx
 	jle .interpret_inst
 
 	mov rax, 60
 	xor rdi, rdi
-	syscall
-
-exit_error:
-	mov rax, 60
-	mov rdi, 1
 	syscall
 
 ; param rax: data ptr
@@ -152,8 +147,8 @@ section .text
 	push rdi
 	; read(STDIN, rax, 1)
 	mov rsi, rax
-	mov rax, 0
-	mov rdi, 0
+	xor rax, rax
+	xor rdi, rdi
 	mov rdx, 10
 	syscall
 	pop rdi
@@ -220,7 +215,7 @@ char_to_inst:
 	sub rdx, 8
 	cmp rdx, JMP_STACK
 	; close bracket with no open bracket
-	jl exit_error
+	jl exit_mismatched_brackets_error
 	mov rbx, [rdx]
 	mov qword [rdi+8], rbx
 	; initialise ptr for [ to next inst
@@ -230,5 +225,51 @@ char_to_inst:
 .exit:
 	add rdi, 8
 	ret
+
+exit_mismatched_brackets_error:
+
+section .rodata
+.MESSAGE: db "Error: mismatched square brackets", 10
+.MESSAGE_LEN: equ $-.MESSAGE
+section .text
+
+	; write(STDOUT, MESSAGE, MESSAGE_LEN)
+	mov rsi, .MESSAGE
+	mov rdx, .MESSAGE_LEN
+	jmp exit_with_message
+
+exit_out_of_memory:
+
+section .rodata
+.MESSAGE: db "Error: out of memory", 10
+.MESSAGE_LEN: equ $-.MESSAGE
+section .text
+
+	; write(STDOUT, MESSAGE, MESSAGE_LEN)
+	mov rsi, .MESSAGE
+	mov rdx, .MESSAGE_LEN
+	jmp exit_with_message
+
+exit_invalid_args_error:
+
+section .rodata
+.MESSAGE: db "Usage: brainf file", 10
+.MESSAGE_LEN: equ $-.MESSAGE
+section .text
+
+	mov rsi, .MESSAGE
+	mov rdx, .MESSAGE_LEN
+	jmp exit_with_message
+
+exit_with_message:
+	; write(STDOUT, MESSAGE, MESSAGE_LEN)
+	mov rax, 1
+	mov rdi, 1
+	syscall
+
+	; exit(1)
+	mov rax, 60
+	mov rdi, 1
+	syscall
 
 ; # vim:ft=nasm
